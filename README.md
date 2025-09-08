@@ -4,6 +4,7 @@
 
 `PSASimulator.jl` is a Julia-based Pressure Swing Adsorption (PSA) simulation package for modeling gas separation processes, particularly CO₂ capture. This package is a Julia translation of the [original MATLAB-based simulator](https://github.com/PEESEgroup/PSA) at this moment, with additional features and improvements planned in the future.
 
+If you find this package helpful, please cite: [Yin, Xiangyu, and Chrysanthos E. Gounaris. "Computational discovery of Metal–Organic Frameworks for sustainable energy systems: Open challenges." Computers & Chemical Engineering 167 (2022): 108022.](https://www.sciencedirect.com/science/article/pii/S0098135422003568)
 
 ## Installation
 
@@ -96,62 +97,62 @@ The demo includes 16 different adsorbent materials:
 ### Governing Equations
 
 **Component Mass Balance (CO₂ mole fraction)**
-```math
+$$
 \begin{aligned}
 \frac{\partial y}{\partial \tau} &= \frac{1}{\mathrm{Pe}}\left(\frac{\partial^2 y}{\partial z^2} + \frac{\partial y}{\partial z}\,\frac{\partial P}{\partial z}\,\frac{1}{P} - \frac{\partial y}{\partial z}\,\frac{\partial T}{\partial z}\,\frac{1}{T}\right)\\
 &\quad -\frac{T}{P}\,\frac{\partial}{\partial z}\left(\frac{y P v}{T}\right)
 + \phi\,\frac{T}{P}\Bigl[(y-1)\frac{\partial x_1}{\partial \tau} + y\frac{\partial x_2}{\partial \tau}\Bigr]
 \end{aligned}
-```
+$$
 
 **Total Mass Balance**
-```math
+$$
 \frac{\partial P}{\partial \tau} = -T\,\frac{\partial}{\partial z}\left(\frac{P v}{T}\right) - \phi T\left(\frac{\partial x_1}{\partial \tau} + \frac{\partial x_2}{\partial \tau}\right) + \frac{P}{T}\,\frac{\partial T}{\partial \tau}.
-```
+$$
 
 **Energy Balance**
-```math
+$$
 \begin{aligned}
 \frac{\partial T}{\partial \tau} &= \frac{K_z}{v_0 L}\,\frac{1}{\zeta}\,\frac{\partial^2 T}{\partial z^2}\\
 &\quad - \frac{\varepsilon C_{pg} P_0}{R T_0}\,\frac{1}{\zeta}\left[\frac{\partial (P v)}{\partial z} - T\,\frac{\partial}{\partial z}\left(\frac{P v}{T}\right)\right]\\
 &\quad + \frac{(1-\varepsilon) q_{s0}}{T_0}\,\frac{1}{\zeta}\Bigl[(-\Delta U_1 + R T_0 T)\frac{\partial x_1}{\partial \tau} + (-\Delta U_2 + R T_0 T)\frac{\partial x_2}{\partial \tau}\Bigr]
 \end{aligned}
-```
-where \(\zeta = (1-\varepsilon)(\rho_s C_{ps} + q_{s0} C_{pa}) + \varepsilon\rho_g C_{pg}\) is the effective heat‐capacity term.
+$$
+where $\zeta = (1-\varepsilon)(\rho_s C_{ps} + q_{s0} C_{pa}) + \varepsilon\rho_g C_{pg}$ is the effective heat‐capacity term.
 
 **Adsorption Kinetics (Linear Driving Force)**
-```math
+$$
 \frac{\partial x_i}{\partial \tau} = k_i\left(\frac{q_i^{\ast}}{q_{s0}} - x_i\right), \qquad i = 1,2.
-```
+$$
 
 **Momentum Balance (Ergun Equation)**
-```math
+$$
 -\frac{\partial P}{\partial z}\,\frac{P_0}{L} = \frac{150\,\mu(1-\varepsilon)^2}{4 r_p^{\,2} \varepsilon^{\,2}}\,v + \frac{1.75(1-\varepsilon)\,\rho_g\,\mathrm{MW}}{2 r_p \varepsilon}\,v^2.
-```
+$$
 
 ### Equilibrium Model
 
-The equilibrium loadings \(q_1^{\ast}\) and \(q_2^{\ast}\) follow a dual–site Langmuir isotherm:
-```math
+The equilibrium loadings $q_1^{\ast}$ and $q_2^{\ast}$ follow a dual–site Langmuir isotherm:
+$$
 q_i = q_{s,b,i}\,\frac{B_i C_i}{1 + B_1 C_1 + B_2 C_2} + q_{s,d,i}\,\frac{D_i C_i}{1 + D_1 C_1 + D_2 C_2}.
-```
+$$
 with temperature–dependent adsorption constants
-```math
+$$
 B_i = b_i\,e^{-\Delta U_{b,i}/(R T)}, \qquad D_i = d_i\,e^{-\Delta U_{d,i}/(R T)}.
-```
+$$
 
 ### Dimensionless Variables
-- Pressure: \(P = P_{\text{actual}}/P_0\)
-- Temperature: \(T = T_{\text{actual}}/T_0\)
-- Velocity: \(v = v_{\text{actual}}/v_0\)
-- Adsorbed amount: \(x_i = q_i/q_{s0}\)
-- Spatial coordinate: \(z = z_{\text{actual}}/L\)
-- Time: \(\tau = t v_0 / L\)
+- Pressure: $P = P_{\text{actual}}/P_0$
+- Temperature: $T = T_{\text{actual}}/T_0$
+- Velocity: $v = v_{\text{actual}}/v_0$
+- Adsorbed amount: $x_i = q_i/q_{s0}$
+- Spatial coordinate: $z = z_{\text{actual}}/L$
+- Time: $\tau = t v_0 / L$
 
 ### Key Parameters
-- \(\mathrm{Pe} = v_0 L / D_l\) with \(D_l = 0.7 D_m + v_0 r_p\) (axial dispersion)
-- \(\phi = R T_0 q_{s0} (1-\varepsilon) / (\varepsilon P_0)\) (capacity ratio)
-- \(k_i = k_{i,\text{LDF}} L / v_0\) (dimensionless LDF coefficient)
+- $\mathrm{Pe} = v_0 L / D_l$ with $D_l = 0.7 D_m + v_0 r_p$ (axial dispersion)
+- $\phi = R T_0 q_{s0} (1-\varepsilon) / (\varepsilon P_0)$ (capacity ratio)
+- $k_i = k_{i,\text{LDF}} L / v_0$ (dimensionless LDF coefficient)
 
 ### Process Steps
 
