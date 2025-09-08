@@ -108,7 +108,7 @@ The demo includes 16 different adsorbent materials:
 **Total Mass Balance**
 ```math
 \frac{\partial P}{\partial \tau} = -T\,\frac{\partial}{\partial z}\left(\frac{P v}{T}\right) - \phi T\left(\frac{\partial x_1}{\partial \tau} + \frac{\partial x_2}{\partial \tau}\right) + \frac{P}{T}\,\frac{\partial T}{\partial \tau}.
-``
+```
 
 **Energy Balance**
 ```math
