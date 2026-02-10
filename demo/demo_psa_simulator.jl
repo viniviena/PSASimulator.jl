@@ -90,7 +90,7 @@ function run_psa_simulation(opt_vars, material_data, run_type, N=10)
 
         return result.objectives, result.constraints
     catch e
-        @warn "Simulation failed: $e"
+        @warn "Simulation failed" exception=(e, catch_backtrace())
         return [NaN, NaN], [NaN, NaN, NaN]
     end
 end
@@ -400,3 +400,4 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     results = main()
 end
+main()

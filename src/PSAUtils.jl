@@ -6,7 +6,7 @@ module PSAUtils
 #  Behaviour, indexing, and edge handling are kept **identical** to the
 #  original so results remain bit‑for‑bit comparable.
 # =========================================================================
-export weno, Isotherm, isotherm_equilibrium, compute_velocity, trapz, WENO          # main entry point (vector or matrix)
+export weno, weno!, Isotherm, isotherm_equilibrium, compute_velocity, compute_velocity!, VelocityCache, trapz, WENO          # main entry point (vector or matrix)
 
 # ──────────────────────────────────────────────────────────────────────────
 #  Helper: promote 1‑D inputs to 2‑D, run core, then unwrap.
@@ -70,6 +70,134 @@ end
 
 # Add WENO alias for consistency with existing code
 const WENO = weno
+
+# ──────────────────────────────────────────────────────────────────────────
+#  In-place WENO for 1-D upwind (zero allocations)
+#  flux_w: pre-allocated output [N+1], flux_c: input [N+2]
+#  alpha0, alpha1: pre-allocated scratch [N+2] each
+# ──────────────────────────────────────────────────────────────────────────
+function weno!(flux_w::AbstractVector, flux_c::AbstractVector,
+               alpha0::AbstractVector, alpha1::AbstractVector)
+    oo = 1e-10
+    Np2 = length(flux_c)
+    N = Np2 - 2
+
+    # Boundary walls
+    flux_w[1] = flux_c[1]
+    flux_w[N+1] = flux_c[N+2]
+
+    # Smoothness coefficients
+    for j in 2:N
+        alpha0[j] = (2.0 / 3.0) / (flux_c[j+1] - flux_c[j] + oo)^4
+    end
+    alpha1[2] = (1.0 / 3.0) / (2.0 * (flux_c[2] - flux_c[1]) + oo)^4
+    for j in 3:N
+        alpha1[j] = (1.0 / 3.0) / (flux_c[j] - flux_c[j-1] + oo)^4
+    end
+
+    # Wall j = 2
+    w0 = alpha0[2] / (alpha0[2] + alpha1[2])
+    w1 = alpha1[2] / (alpha0[2] + alpha1[2])
+    flux_w[2] = w0 * 0.5 * (flux_c[2] + flux_c[3]) +
+                w1 * (2.0 * flux_c[2] - flux_c[1])
+
+    # Interior walls j = 3 … N
+    for j in 3:N
+        w0 = alpha0[j] / (alpha0[j] + alpha1[j])
+        w1 = alpha1[j] / (alpha0[j] + alpha1[j])
+        flux_w[j] = w0 * 0.5 * (flux_c[j] + flux_c[j+1]) +
+                    w1 * (1.5 * flux_c[j] - 0.5 * flux_c[j-1])
+    end
+
+    return nothing
+end
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Cache for compute_velocity! pre-allocated arrays
+# ──────────────────────────────────────────────────────────────────────────
+struct VelocityCache{V <: AbstractVector{Float64}}
+    vh::V       # N+1: velocity at walls
+    Ph::V       # N+1: pressure at walls
+    Th::V       # N+1: temperature at walls
+    yh::V       # N+1: mole fraction at walls
+    dpdzh::V    # N+1: pressure gradient at walls
+    alpha0::V   # N+2: weno scratch
+    alpha1::V   # N+2: weno scratch
+end
+
+function VelocityCache(N::Int)
+    return VelocityCache(
+        zeros(N + 1),
+        zeros(N + 1),
+        zeros(N + 1),
+        zeros(N + 1),
+        zeros(N + 1),
+        zeros(N + 2),
+        zeros(N + 2),
+    )
+end
+
+# ──────────────────────────────────────────────────────────────────────────
+#  In-place velocity calculation (upwind only, zero allocations)
+# ──────────────────────────────────────────────────────────────────────────
+function compute_velocity!(vc::VelocityCache,
+                           P::AbstractVector, T::AbstractVector, y::AbstractVector,
+                           Params::AbstractVector)
+    N = Int(Params[1])
+    epsilon = Params[6]
+    r_p = Params[7]
+    mu = Params[8]
+    P_0 = Params[17]
+    L = Params[18]
+    MW_CO2 = Params[19]
+    MW_N2 = Params[20]
+    v_0 = Params[10]
+    R = Params[9]
+    T_0 = Params[5]
+
+    dz = 1.0 / N
+
+    vh = vc.vh
+    Ph = vc.Ph
+    Th = vc.Th
+    yh = vc.yh
+    dpdzh = vc.dpdzh
+
+    # WENO upwind (in-place, reusing scratch arrays)
+    weno!(Ph, P, vc.alpha0, vc.alpha1)
+    weno!(Th, T, vc.alpha0, vc.alpha1)
+    weno!(yh, y, vc.alpha0, vc.alpha1)
+
+    # Pressure gradient at walls
+    dpdzh[1] = 2.0 * (P[2] - P[1]) / dz
+    for i in 2:N
+        dpdzh[i] = (P[i+1] - P[i]) / dz
+    end
+    dpdzh[N+1] = 2.0 * (P[N+2] - P[N+1]) / dz
+
+    # Ergun equation coefficients (scalars)
+    viscous_term = 150.0 * mu * (1.0 - epsilon)^2 / 4.0 / r_p^2 / epsilon^2
+    rho_factor = P_0 / R / T_0
+    kinetic_factor = 1.75 * (1.0 - epsilon) / 2.0 / r_p / epsilon
+    four_P0_over_L = 4.0 * P_0 / L
+
+    # Solve Ergun equation for velocity — scalar loop, zero allocations
+    for i in 1:N+1
+        ro_gh_i = rho_factor * Ph[i] / Th[i]
+        MW_h_i = MW_N2 + (MW_CO2 - MW_N2) * yh[i]
+        kinetic_term = ro_gh_i * MW_h_i * kinetic_factor
+
+        if abs(kinetic_term) > 1e-10
+            discriminant = viscous_term^2 + kinetic_term * abs(dpdzh[i]) * four_P0_over_L
+            discriminant = max(discriminant, 0.0)
+            vh[i] = -sign(dpdzh[i]) * (-viscous_term + sqrt(discriminant)) / (2.0 * kinetic_term) / v_0
+        else
+            vh[i] = 0.0
+        end
+    end
+
+    return nothing
+end
 
 # ──────────────────────────────────────────────────────────────────────────
 #  Isotherm calculation - Direct port from MATLAB Isotherm.m
@@ -139,15 +267,57 @@ function Isotherm(y::AbstractVector, P::AbstractVector, T::AbstractVector, isoth
     return hcat(q1, q2)
 end
 
-# Convenience function for scalar inputs
+# Scalar method — zero allocations, returns (q1, q2) tuple
 function Isotherm(y::Real, P::Real, T::Real, isotherm_parameters::AbstractVector)
-    return Isotherm([y], [P], [T], isotherm_parameters)
+    R = 8.314  # J/(mol·K)
+
+    # Extract parameters
+    q_s_b_1 = isotherm_parameters[1]
+    q_s_d_1 = isotherm_parameters[3]
+    q_s_b_2 = isotherm_parameters[2]
+    q_s_d_2 = isotherm_parameters[4]
+    b_1 = isotherm_parameters[5]
+    d_1 = isotherm_parameters[7]
+    b_2 = isotherm_parameters[6]
+    d_2 = isotherm_parameters[8]
+    deltaU_b_1 = isotherm_parameters[9]
+    deltaU_d_1 = isotherm_parameters[11]
+    deltaU_b_2 = isotherm_parameters[10]
+    deltaU_d_2 = isotherm_parameters[12]
+
+    # Temperature-dependent parameters
+    inv_RT = 1.0 / (R * T)
+    B_1 = b_1 * exp(-deltaU_b_1 * inv_RT)
+    D_1 = d_1 * exp(-deltaU_d_1 * inv_RT)
+    B_2 = b_2 * exp(-deltaU_b_2 * inv_RT)
+    D_2 = d_2 * exp(-deltaU_d_2 * inv_RT)
+
+    # Choose input type based on parameter 13
+    if isotherm_parameters[13] == 0
+        # Partial pressure
+        input_1 = y * P
+        input_2 = (1.0 - y) * P
+    elseif isotherm_parameters[13] == 1
+        # Concentration
+        input_1 = y * P * inv_RT
+        input_2 = (1.0 - y) * P * inv_RT
+    else
+        error("Please specify whether the isotherms are in terms of Concentration or Partial Pressure")
+    end
+
+    # Calculate loadings for both sites
+    denom_b = 1.0 + B_1 * input_1 + B_2 * input_2
+    denom_d = 1.0 + D_1 * input_1 + D_2 * input_2
+
+    q1 = q_s_b_1 * B_1 * input_1 / denom_b + q_s_d_1 * D_1 * input_1 / denom_d
+    q2 = q_s_b_2 * B_2 * input_2 / denom_b + q_s_d_2 * D_2 * input_2 / denom_d
+
+    return (q1, q2)
 end
 
 # Alias for the function name used in the step functions
 function isotherm_equilibrium(y::Real, P::Real, T::Real, isotherm_parameters::AbstractVector)
-    q = Isotherm(y, P, T, isotherm_parameters)
-    return q[1, 1], q[1, 2]  # Return as tuple (q1, q2)
+    return Isotherm(y, P, T, isotherm_parameters)
 end
 
 # ──────────────────────────────────────────────────────────────────────────

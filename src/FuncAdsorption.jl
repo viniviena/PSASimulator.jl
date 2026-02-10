@@ -87,7 +87,7 @@ function FuncAdsorption(t, state_vars, params, isotherm_params)
     dydz = zeros(N + 2)
     d2ydz2 = zeros(N + 2)
     dTdz = zeros(N + 2)
-    d2Tdz2 = zeros(N + 2)
+    d2Tdz2 = zeros(N + 2) #This allocates a hell lot of memory every function call, it would be better to unpcack from a struct bfh 
 
     # Calculate parameters
     dz = 1.0 / N
